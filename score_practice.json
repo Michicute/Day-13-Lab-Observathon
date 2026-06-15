@@ -1,0 +1,21 @@
+{
+  "team": "CHI",
+  "phase": "practice",
+  "headline": 37.75,
+  "sub": {
+    "correct": 0.0,
+    "quality": 0.0,
+    "error": 0.0,
+    "latency": 1.0,
+    "cost": 1.0,
+    "drift": 1.0,
+    "prompt": 0.0
+  },
+  "diag_f1": 0.625,
+  "n": 0,
+  "n_correct": 0,
+  "judge_mode": "offline",
+  "weights_hash": "e81a8ed58d93",
+  "key_hash": "9a800fa6968d",
+  "sig": "14038e88f18fa6161e3b62b614e85831e161dbcbec05b76726aabe67eb02b40b"
+}

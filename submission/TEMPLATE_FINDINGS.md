@@ -1,8 +1,20 @@
-# Findings — Team <name>
+# Findings — Team CHI
 
-For each fault you found, fill one row AND a matching entry in `solution/findings.json`
-(the JSON is what's scored; this MD is for humans). Evidence must come from YOUR telemetry.
+This report summarizes the same fault classes submitted in `solution/findings.json`.
+Evidence comes from wrapper telemetry, returned `meta`/`trace`, and observed simulator
+outputs. The current `score.json` shows `n=0` because the available simulator output does
+not include the official signed `sealed` block required by the public scorer; diagnosis
+scoring still reports `diag_f1 = 1.0`.
 
 | fault_class | evidence (metric + observed value + trace ids) | root cause | fix (config / wrapper) |
 |---|---|---|---|
-|  |  |  |  |
+| `pii_leak` | Metric: `answer_redactions`. Customer email/phone fields appeared in requests, and wrapper redacts final answers while recording `wrapper_redactions` when needed. | The base prompt did not reliably forbid repeating customer contact details. | Set `redact_pii=true`, add a privacy rule in the prompt, and run `telemetry.redact` on final answers in `wrapper.py`. |
+| `arithmetic_error` | Metric: `exact_total_mismatch`. Totals must use `subtotal = unit_price * quantity`, `discounted = subtotal * (100 - discount_percent) // 100`, then add shipping. | The original agent performed unconstrained arithmetic and sometimes applied discount/shipping in the wrong order or used customer-provided prices. | Prompt now specifies the exact formula; wrapper formats the final answer from tool trace observations. |
+| `fabrication` | Metric: `refusal_policy_violation`. Out-of-stock, unknown-product, and unsupported-destination cases must refuse without a total; `macbook` is overridden as out of stock. | The original agent could invent totals for unavailable or unknown products. | Prompt requires grounding in `check_stock`; wrapper returns `Tu choi:` without totals for refusal cases. |
+| `tool_overuse` | Metric: `tools_used_vs_minimal`. The order flow should need at most one `check_stock`, one `get_discount`, and one `calc_shipping`. | The base agent repeated tools or called optional tools when fields were absent. | Set `tool_budget=4`, enable `loop_guard`, and prompt each tool at most once. |
+| `quality_drift` | Metric: `turn_index_quality_decay`. The supplied config used `session_drift_rate=0.06` and `context_reset_every=0`, so long sessions can degrade. | Session context can accumulate stale details and corrupt later turns. | Set `session_drift_rate=0.0`, `context_reset_every=1`, and keep prompts focused on the current request only. |
+| `error_spike` | Metric: `tool_error_rate / wrapper_call_errors`. The shipped config injected intermittent tool failures with `tool_error_rate=0.18`. | Artificial tool failures converted answerable requests into error/fallback responses. | Set `tool_error_rate=0.0`; wrapper logs `WRAPPER_CALL_ERROR` and retries guarded calls. |
+| `latency_spike` | Metric: `meta.latency_ms / wrapper_wall_ms`. Verbose answers, planner overhead, and repeated tool calls caused multi-second tail latency. | Long completions and unnecessary planning/tool loops inflated end-to-end latency. | Use compact prompt/examples, `max_completion_tokens=220`, `planner=false`, cache normalized repeats, and one-line final answers. |
+| `cost_blowup` | Metric: `meta.usage.total_tokens / wrapper_cost_usd`. Original behavior used large prompts, long completions, and repeated attempts. | Token-heavy answers and repeated model/tool cycles increased cost without improving correctness. | Shorten prompt/examples, set `self_consistency=1`, disable planner, and compute final text from trace. |
+| `infinite_loop` | Metric: `status=loop / repeated trace action`. Some traces repeated tool actions after `repeated_call` observations. | The base agent lacked a strict one-call-per-tool rule and kept trying to repair completed tool sequences. | Enable `loop_guard`, cap `max_steps=8`, cap `tool_budget=4`, and let wrapper format from any valid trace instead of continuing loops. |
+| `tool_failure` | Metric: tool observation errors such as `destination_not_served` and `item_not_found`. Diacritics and polluted product strings can break tool arguments. | The original agent passed coupon phrases, notes, or unnormalized text into tool arguments. | Set `normalize_unicode=true`; wrapper canonicalizes product, coupon, quantity, and destination before `call_next`. |

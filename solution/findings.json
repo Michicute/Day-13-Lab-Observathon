@@ -1,12 +1,106 @@
 {
-  "team": "TODO-team-name",
+  "team": "CHI",
   "schema_version": 1,
   "findings": [
     {
+      "fault_class": "pii_leak",
+      "evidence": {
+        "metric": "answer_redactions",
+        "observed": "Customer email/phone data can be present in requests; wrapper applies telemetry.redact to final answers and records wrapper_redactions when PII is removed.",
+        "trace_ids": []
+      },
+      "root_cause": "The base prompt did not reliably prohibit repeating customer contact fields, allowing raw email addresses or phone numbers to appear in answers.",
+      "suggested_fix": "Set redact_pii=true, add a prompt privacy rule, and redact the final answer in wrapper before returning."
+    },
+    {
+      "fault_class": "arithmetic_error",
+      "evidence": {
+        "metric": "exact_total_mismatch",
+        "observed": "Order totals require integer floor discount arithmetic: subtotal = unit_price * quantity; discounted = subtotal * (100 - discount_percent) // 100; total = discounted + shipping.",
+        "trace_ids": []
+      },
+      "root_cause": "The original prompt let the model do unconstrained arithmetic and sometimes apply discounts/shipping in the wrong order or use customer-provided prices.",
+      "suggested_fix": "Prompt now specifies the exact formula, requires verification before answering, and config lowers temperature with self_consistency enabled."
+    },
+    {
+      "fault_class": "fabrication",
+      "evidence": {
+        "metric": "refusal_policy_violation",
+        "observed": "Out-of-stock, unknown-product, and unsupported-destination cases must refuse without any total; catalog override marks macbook in_stock=false.",
+        "trace_ids": []
+      },
+      "root_cause": "The original agent could invent prices/totals for unavailable or unknown products instead of grounding every amount in tool results.",
+      "suggested_fix": "Prompt requires prices only from check_stock and forbids showing a total on refusals."
+    },
+    {
+      "fault_class": "tool_overuse",
+      "evidence": {
+        "metric": "tools_used_vs_minimal",
+        "observed": "The task needs at most one check_stock, one get_discount, and one calc_shipping call; wrapper telemetry logs tools_used and config caps tool_budget at 4.",
+        "trace_ids": []
+      },
+      "root_cause": "The base agent could repeat tools or call optional tools when coupon/destination fields were absent, increasing latency and cost.",
+      "suggested_fix": "Prompt fixes tool order and one-call limits; wrapper enforces loop_guard and tool_budget <= 4."
+    },
+    {
+      "fault_class": "quality_drift",
+      "evidence": {
+        "metric": "turn_index_quality_decay",
+        "observed": "The supplied config had session_drift_rate=0.06 and context_reset_every=0, so long sessions can degrade without reset; wrapper resets routed session context every 6 turns.",
+        "trace_ids": []
+      },
+      "root_cause": "Session context can accumulate stale order details and drift later turns away from current request/tool results.",
+      "suggested_fix": "Wrapper resets session context periodically and prompt requires extracting fields only from the current customer order."
+    },
+    {
+      "fault_class": "error_spike",
+      "evidence": {
+        "metric": "tool_error_rate / wrapper_call_errors",
+        "observed": "The shipped config injected intermittent tool errors with tool_error_rate=0.18. Wrapper logs WRAPPER_CALL_ERROR and the fixed config sets tool_error_rate=0.0.",
+        "trace_ids": []
+      },
+      "root_cause": "Artificial tool failures can convert otherwise answerable orders into fallback/error responses.",
+      "suggested_fix": "Disable injected tool errors in config and keep wrapper retry/fallback logging around call_next."
+    },
+    {
       "fault_class": "latency_spike",
-      "evidence": {"metric": "latency_p95_ms", "observed": "TODO from your telemetry", "trace_ids": []},
-      "root_cause": "TODO: what config knob or behavior causes it?",
-      "suggested_fix": "TODO: config change and/or wrapper mitigation"
+      "evidence": {
+        "metric": "meta.latency_ms / wrapper_wall_ms",
+        "observed": "Long verbose answers and repeated tool loops produced multi-second tail latency; wrapper records latency and rewrites final answers to one parseable line.",
+        "trace_ids": []
+      },
+      "root_cause": "Verbose completions, planner overhead, self-consistency, and unnecessary tool calls inflate end-to-end latency.",
+      "suggested_fix": "Use a compact prompt, lower max_completion_tokens, disable planner, cache normalized repeats, and cap tool_budget."
+    },
+    {
+      "fault_class": "cost_blowup",
+      "evidence": {
+        "metric": "meta.usage.total_tokens / wrapper_cost_usd",
+        "observed": "Original responses used large prompts and long completions; wrapper computes cost_from_usage and config now reduces completion budget and self_consistency.",
+        "trace_ids": []
+      },
+      "root_cause": "Bloated prompt/examples, verbose final answers, and repeated LLM attempts increase token usage without improving correctness.",
+      "suggested_fix": "Shorten prompt/examples, set max_completion_tokens=220, self_consistency=1, planner=false, and format final answers from trace."
+    },
+    {
+      "fault_class": "infinite_loop",
+      "evidence": {
+        "metric": "status loop / repeated trace action",
+        "observed": "Some traces repeat the same tool action or return status=loop when the model retries a tool after receiving a repeated_call observation.",
+        "trace_ids": []
+      },
+      "root_cause": "The base agent lacked a strict one-call-per-tool rule and could keep trying to repair an already completed tool sequence.",
+      "suggested_fix": "Enable loop_guard, set max_steps=8, cap tool_budget=4, and let wrapper format from any valid trace observations instead of allowing more loops."
+    },
+    {
+      "fault_class": "tool_failure",
+      "evidence": {
+        "metric": "tool observation error / destination_not_served / item_not_found",
+        "observed": "Diacritics and polluted product strings can cause item_not_found or destination errors; wrapper normalizes Unicode and cleans product/coupon/destination fields before call_next.",
+        "trace_ids": []
+      },
+      "root_cause": "The original agent passed extra text such as coupon phrases or notes into tool arguments and did not normalize customer text reliably.",
+      "suggested_fix": "Set normalize_unicode=true and canonicalize the user request in wrapper so tools receive clean product names, coupons, weights, and destinations."
     }
   ]
 }
